@@ -18,10 +18,15 @@ class Map_Builder(object):
         self.START_TOPIC = rospy.get_param("~start_topic")
         self.GOAL_TOPIC = rospy.get_param("~goal_topic")
         self.SCAN_TOPIC = rospy.get_param("~scan_topic")
+        self.MAP_TOPIC = rospy.get_param("~map_topic")
         self.MAP_FILE = rospy.get_param("~map_file") #stata_basement0.1m.p
         self.SCAN_HIT_INC = rospy.get_param("~scan_hit_inc")
         self.OBSTACLE_THRESHOLD = rospy.get_param("~obstacle_threshold")
         self.POSE_ESTIM_TOPIC = rospy.get_param("~pos_estim_topic")
+
+        self.origin_x_offset = rospy.get_param("~origin_x_offset")
+        self.origin_y_offset = rospy.get_param("~origin_y_offset")
+        self.map_res = rospy.get_param("~map_res")
 
         self.start_pose = [0, 0, 0] # x, y, theta
         self.goal_pose = [0, 0, 0] # x, y, theta
@@ -29,6 +34,8 @@ class Map_Builder(object):
         self.map_loaded = False
         self.map_graph = None
         self.graph_node_vals = dict()
+        self.grid = None
+        self.origin = None
 
         self.load_map()
 
@@ -36,6 +43,7 @@ class Map_Builder(object):
         rospy.Subscriber(self.GOAL_TOPIC, PoseStamped, self.set_goal)
         rospy.Subscriber(self.SCAN_TOPIC, LaserScan, self.scan_callback)
         rospy.Subscriber(self.POSE_ESTIM_TOPIC, Point32, self.pose_estim_callback)
+        rospy.Subscriber(self.MAP_TOPIC, OccupancyGrid, self.occ_callback, queue_size=1)
 
     def set_start(self, start_pose):
         x, y = start_pose.pose.pose.position.x, start_pose.pose.pose.position.y
@@ -60,7 +68,21 @@ class Map_Builder(object):
     def pose_estim_callback(self, pose):
         #add timing gate
         self.current_pose = [pose.x, pose.y, pose.z]
-             
+
+
+    def occ_callback(self, occ_grid):
+    	map_ = np.array(occ_grid.data, np.double)
+    	map_ = np.clip(map_, 0, 1)
+    	self.grid = np.reshape(map_, (occ_grid.info.height, occ_grid.info.width)).T
+    	origin_p = occ_grid.info.origin.position
+        origin_o = occ_grid.info.origin.orientation
+        origin_o = tf.transformations.euler_from_quaternion((
+                origin_o.x,
+                origin_o.y,
+                origin_o.z,
+                origin_o.w))
+        self.origin = (origin_p.x+self.origin_x_offset, origin_p.y+self.origin_y_offset, origin_o[2])
+
 
     def scan_callback(self, ls):
         if not self.map_loaded: pass

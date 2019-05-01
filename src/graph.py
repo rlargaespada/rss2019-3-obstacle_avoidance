@@ -29,10 +29,9 @@ class Graph(object):
 
 	def remove_node(self, node):
 		self.nodes.remove(node)
+		for n in self.neighbors[node]:
+		    self.neighbors[n].discard(node)
 		del self.neighbors[node]
-		for n in self.neighbors:
-		    if node in self.neighbors[n]:
-		    	self.neighbors[n].discard(node)
 
 	def __str__(self):
 		for node in self.neighbors:
