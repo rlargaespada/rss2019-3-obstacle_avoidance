@@ -1,5 +1,5 @@
 # rrt* algorithm parameters
-chunk_size: 5 # number of scans grouped together
+chunk_size: 15 # number of scans grouped together
 chunk_spacing: 3 # number of scans between each chunk
 discard_dist: 1 # distance that will us to discard a chunk due to one (or a few) values being too close
 discard_size: 4 # +/- number of indicies that will trigger a chunk to be discared if one (or a few) values are less than discard_dist
