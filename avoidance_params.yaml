@@ -1,8 +1,13 @@
 # rrt* algorithm parameters
 chunk_size: 5 # number of scans grouped together
-dodge_dist: 1 # distance to cause a dodge
-dodge_ang: 1 #angle to cause a dodge
-velocity: 4.5 #velocity 
+chunk_spacing: 3 # number of scans between each chunk
+discard_dist: 1 # distance that will us to discard a chunk due to one (or a few) values being too close
+discard_size: 4 # +/- number of indicies that will trigger a chunk to be discared if one (or a few) values are less than discard_dist
+min_dist_weight: 1 # Weight given to the minimum distance in the clearance portion of score function
+goal_ang_weight: 1 # Weight given to the magnitude of the angle between a chunk and the goal
+past_ang_weight: 1 # Weight given to the magnitude of the angle between a chunk and the last angle chosen
+full_view_ang: .5 #angle to cause a dodge
+velocity: 2 #velocity 
 
 
 # topics
@@ -10,4 +15,5 @@ velocity: 4.5 #velocity
 local_topic: "/pf/viz/inferred_pose"
 drive_topic: "/drive"
 scan_topic: "/scan"
+goal_topic: "/move_base_simple/goal"
 heading_marker: "/heading"

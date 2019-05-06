@@ -1,0 +1,14 @@
+# rrt* algorithm parameters
+chunk_size: 5 # number of scans grouped together
+dodge_dist: 1 # distance to cause a dodge
+dodge_ang: 1 #angle to cause a dodge
+velocity: 2 #velocity 
+
+
+# topics
+#local_topic: "/estim_pose"
+local_topic: "/pf/viz/inferred_pose"
+drive_topic: "/drive"
+scan_topic: "/scan"
+goal_topic: "/move_base_simple/goal"
+heading_marker: "/heading"
