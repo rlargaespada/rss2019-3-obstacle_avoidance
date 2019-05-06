@@ -92,7 +92,7 @@ class Dubins_Avoidance(object):
 
         for goal in dubin_goals:
             p = dubins.shortest_path(tuple(self.pose_estim), goal, self.TURNING_RADIUS)
-            path = p.sample_many(self.DUBINS_PATH_STEP)
+            path, _ = p.sample_many(self.DUBINS_PATH_STEP)
             paths.append(path)
 
         return paths
