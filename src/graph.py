@@ -17,6 +17,7 @@ class Graph(object):
 		self.fn_resolution = '0.1m'
 		self.fn = None
 		self.params_fn = None
+		self.graph_fn = None
 
 	def cost(self, p1, p2):
 		return ((p1[0]-p2[0])**2+(p1[1]-p2[1])**2)**(0.5)
@@ -131,6 +132,10 @@ class Graph(object):
 				self.y_min, self.y_max = data['y_bounds']
 			except:
 				print('failed to load params from file, make sure file name is correct and file located in ~/.ros')
+
+	def save_all(self, fn):
+		with open(fn, 'wb') as fp:
+			pickle.dump(self, fp, protocol=pickle.HIGHEST_PROTOCOL)
 
 	def heuristic(self, node1, node2):
 		point1 = node1

@@ -23,6 +23,7 @@ class Map_Builder(object):
         self.SCAN_HIT_INC = rospy.get_param("~scan_hit_inc")
         self.OBSTACLE_THRESHOLD = rospy.get_param("~obstacle_threshold")
         self.POSE_ESTIM_TOPIC = rospy.get_param("~pos_estim_topic")
+        self.PARTICLE_CLOUD_TOPIC = rospy.get_param("~particle_cloud")
 
         self.origin_x_offset = rospy.get_param("~origin_x_offset")
         self.origin_y_offset = rospy.get_param("~origin_y_offset")
@@ -37,13 +38,19 @@ class Map_Builder(object):
         self.grid = None
         self.origin = None
 
-        self.load_map()
+        self.in_scan_cb = False
+        self.in_pose_cb = False
 
         rospy.Subscriber(self.START_TOPIC, PoseWithCovarianceStamped, self.set_start)
         rospy.Subscriber(self.GOAL_TOPIC, PoseStamped, self.set_goal)
         rospy.Subscriber(self.SCAN_TOPIC, LaserScan, self.scan_callback)
         rospy.Subscriber(self.POSE_ESTIM_TOPIC, Point32, self.pose_estim_callback)
         rospy.Subscriber(self.MAP_TOPIC, OccupancyGrid, self.occ_callback, queue_size=1)
+
+        self.particle_cloud_publisher = rospy.Publisher(self.PARTICLE_CLOUD_TOPIC, PointCloud, queue_size=10)
+        self.path_publisher = rospy.Publisher(self.PATH_TOPIC, PointCloud, queue_size=10)
+
+        self.load_map()
 
     def set_start(self, start_pose):
         x, y = start_pose.pose.pose.position.x, start_pose.pose.pose.position.y
@@ -67,31 +74,35 @@ class Map_Builder(object):
 
     def pose_estim_callback(self, pose):
         #add timing gate
+        if self.in_scan_cb: return
+        self.in_pose_cb = True
         self.current_pose = [pose.x, pose.y, pose.z]
-
+        self.in_pose_cb = False
 
     def occ_callback(self, occ_grid):
-    	map_ = np.array(occ_grid.data, np.double)
-    	map_ = np.clip(map_, 0, 1)
-    	self.grid = np.reshape(map_, (occ_grid.info.height, occ_grid.info.width)).T
-    	origin_p = occ_grid.info.origin.position
+        map_ = np.array(occ_grid.data, np.double)
+        map_ = np.clip(map_, 0, 1)
+        self.grid = np.reshape(map_, (occ_grid.info.height, occ_grid.info.width)).T
+        origin_p = occ_grid.info.origin.position
         origin_o = occ_grid.info.origin.orientation
         origin_o = tf.transformations.euler_from_quaternion((
                 origin_o.x,
                 origin_o.y,
                 origin_o.z,
                 origin_o.w))
-        self.origin = (origin_p.x+self.origin_x_offset, origin_p.y+self.origin_y_offset, origin_o[2])
+        self.origin = np.array[origin_p.x+self.origin_x_offset, origin_p.y+self.origin_y_offset, origin_o[2]]
 
 
     def scan_callback(self, ls):
-        if not self.map_loaded: pass
-        #add timing gate
+        if not self.map_loaded: return
+        if self.in_pose_cb: return
+        self.in_scan_cb = True
 
         #from laserscan data, find likely obstacles and correlate these to locations relative to the car
-        relative_obstacle_positions = []
+        #abbie: incorporate sensor model, maybe by scaling factor added to occupancy grid by sensor model
+        relative_obstacle_positions = [] #rw coordiates in car frame
         for alpha in range(len(ls.ranges)):
-            if ls.range_min <= ls.ranges[alpha] <= ls.range_max: #better way?
+            if ls.range_min <= ls.ranges[alpha] <= ls.range_max:
                 r = ls.ranges[alpha]
                 angle = ls.angle_min + ls.angle_increment*alpha
                 x = r*math.cos(angle)
@@ -99,9 +110,8 @@ class Map_Builder(object):
                 relative_obstacle_positions.append((x, y))
 
         #correlate these to nodes within the graph (map frame)
-        #probably use einsum?
-        #fir each position in r_o_p, convert to global frame and round to nearest .1 meter
-        obstacle_nodes = []
+        #for each position in r_o_p, convert to global frame and round to nearest .1 meter
+        obstacle_nodes = np.array(relative_obstacle_positions) - np.array(self.origin[:2])
 
         #increase the value of these nodes by self.SCAN_HIT_INC
         for n in obstacle_nodes:
@@ -113,3 +123,9 @@ class Map_Builder(object):
                 self.map_graph.remove_node(n)
 
         #publish relevant data
+
+        self.in_scan_cb = False
+
+        #incorporate sensor model
+        #visualization: graph and occupancy grid get modified at the same time; add rw to oc
+        #decide how often we want to path plan, finding spaces, start with just to the goal
