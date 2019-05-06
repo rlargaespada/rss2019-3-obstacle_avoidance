@@ -4,7 +4,7 @@ import numpy as np
 import math
 import rospy
 import scipy
-from sklearn.metrics import mean_squared_error
+# from sklearn.metrics import mean_squared_error
 from rospy.numpy_msg import numpy_msg
 from sensor_msgs.msg import LaserScan
 from visualization_msgs.msg import Marker
@@ -35,15 +35,19 @@ class ObstacleAvoidance:
         self.k_goal = rospy.get_param("~goal_ang_weight")       #Weight given to the magnitude of the angle between a chunk and the goal
         self.k_pose = rospy.get_param("~past_ang_weight")       #Weight given to the magnitude of the angle between a chunk and the last angle chosen
         self.out = AckermannDriveStamped()
+
         # self.create_message(self.VELOCITY)
         self.pose = np.zeros(3)     #Pose of robot
         self.goal = np.zeros(3)     #Goal point
-        self.scan = np.array([])      
+        self.goal_region = {"xmin": 0, "xmax": 0, "ymin": 0, "ymax": 0}
+        self.goal_size = 1
+        self.in_goal = False
+        self.scan = np.array([])
         self.heading = 0            #Direction the wheels face
         self.min_ang = -2*pi/3.     #Minimum angle of the scan
         self.heading_pub = rospy.Publisher(self.HEADING_TOPIC, Marker, queue_size=10)                   #Publishes heading as a marker [CURRENTLY INACTIVE]
         self.pub = rospy.Publisher(self.DRIVE_TOPIC, AckermannDriveStamped, queue_size=10)              #Pubhlishes the drive command
-        rospy.Subscriber(self.POSE_TOPIC,PoseStamped,self.pose_callback,queue_size=10)  #Gets pose from localization 
+        rospy.Subscriber(self.POSE_TOPIC,PoseStamped,self.pose_callback,queue_size=10)  #Gets pose from localization
         rospy.Subscriber(self.SCAN_TOPIC, LaserScan, self.callback)                     #Gets laserscan
         rospy.Subscriber(self.GOAL_TOPIC, PoseStamped, self.set_goal)                   #Gets the new goal position
 
@@ -64,12 +68,25 @@ class ObstacleAvoidance:
         x, y = goal_pose.pose.position.x, goal_pose.pose.position.y
         self.goal = np.array([x, y, 0])
 
+        self.goal_region["xmin"] = x-self.goal_size
+        self.goal_region["xmax"] = x+self.goal_size
+        self.goal_region["ymin"] = y-self.goal_size
+        self.goal_region["ymax"] = y+self.goal_size
+
+    def check_goal(self):
+        """
+        Sets self.in_goal to True if we are have reached our goal.
+        """
+        if self.goal_region["xmin"] < self.pose[0] < self.goal_region["xmax"]:
+            if self.goal_region["ymin"] < self.pose[1] < self.goal_region["ymax"]:
+                self.in_goal = True
+
     def pose_callback(self, pose):
         '''
         input: Pose from localization as a PoseStamped
         output: None, publishes a message of the best heading for the robot
         '''
-        self.pose = np.array([pose.pose.position.x,pose.pose.position.y,2*np.arctan(pose.pose.orientation.z/pose.pose.orientation.w)]) 
+        self.pose = np.array([pose.pose.position.x,pose.pose.position.y,2*np.arctan(pose.pose.orientation.z/pose.pose.orientation.w)])
         # self.pose = np.array([pose.x,pose.y,pose.z]) #sets global position variable
         #Set angle to goal
         self.goal_ang = np.arctan2(self.goal[1] - self.pose[1], self.goal[0] - self.pose[0]) - self.pose[2]
@@ -98,7 +115,9 @@ class ObstacleAvoidance:
         print(self.angs_list[max_group], max_score)
         #Determine heading
         self.determine_heading(max_group)
+        self.pub_heading(self.heading)
         #Send steering mesage
+        self.check_goal()
         self.create_message(self.VELOCITY, self.heading)
         self.pub.publish(self.out)
 
@@ -110,9 +129,7 @@ class ObstacleAvoidance:
         #TODO: Probably should be something with ackermann steering. Currently just points wheels in direction of the max group found.
         '''
         self.heading = max(-.34, min(.34, self.angs_list[max_group]))
-        
 
-    
     def get_score(self, dists, dists_discard, ang_from_goal, ang_from_odom):
         '''
         input: dists: numpy array of the distances for the "clearance" section that we will take for scoring
@@ -128,15 +145,15 @@ class ObstacleAvoidance:
         #Return the weighted score of each relevant input
         return dists.min()*self.k_dist - ang_from_goal*self.k_goal - ang_from_odom*self.k_goal
 
-
     def create_message(self, v, ang):
-        """create optput AckermannDriveStamped mssage
+        """
+        create optput AckermannDriveStamped mssage
         """
         self.out.header.stamp = rospy.Time.now()
         self.out.header.frame_id = "1"
         self.out.drive.steering_angle = ang
         self.out.drive.steering_angle_velocity = 0
-        self.out.drive.speed = v
+        self.out.drive.speed = 0 if self.in_goal else v
         self.out.drive.acceleration = 0
         self.out.drive.jerk = 0
 
@@ -165,6 +182,38 @@ class ObstacleAvoidance:
             angs_list.append(angs_list[i]+ainc)
         return angs_list
 
+    def pub_heading(self, angle):
+        """
+        Publishes a marker to show the current desired heading of the car.
+        Input: angle: global angle of the next heading in radians
+        """
+        marker_msg = Marker()
+
+        #arrow marker for current pose
+        marker_msg.header.frame_id = "/base_link"
+        marker_msg.header.stamp = rospy.Time.now()
+        marker_msg.ns = "marker_msg_marker"
+        marker_msg.id = 0
+        marker_msg.type = marker_msg.ARROW
+
+        #start point and end point
+        marker_msg.points = [Point(), Point()]
+        #start point
+        marker_msg.points[0].x = 0
+        marker_msg.points[0].y = 0
+        marker_msg.points[0].z = 0
+        #end point
+        marker_msg.points[1].x = np.cos(angle)
+        marker_msg.points[1].y = np.sin(angle)
+        marker_msg.points[1].z = 0
+
+        marker_msg.scale.x = 0.2
+        marker_msg.scale.y = 0.4
+
+        marker_msg.color.a = 1.0
+        marker_msg.color.g = 1.0
+
+        self.heading_pub.publish(marker_msg)
 
     def create_PointCloud(self):
 
