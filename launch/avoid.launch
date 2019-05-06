@@ -1,0 +1,10 @@
+<launch>
+  <!-- Launch the racecar simulator -->
+  <include file="$(find localization-solution)/launch/localize_simulation.launch"/>
+ 
+  
+  <!-- Begin rrt for path planning -->
+  <node pkg="obstacle_avoidance" type="avoidance.py" name="obstacle_avoidance" output="screen">
+    <rosparam command="load" file="$(find obstacle_avoidance)/avoidance_params.yaml"/>
+  </node>
+</launch>
