@@ -63,6 +63,7 @@ class ObstacleAvoidance:
         self.angs_list = self.a_trans(scan)
         self.min_ang = scan.angle_min
         self.ang_inc = scan.angle_increment
+        self.ang_inc_deg = self.ang_inc*180./pi
 
     def goal_cb(self, goal_pose):
         """
@@ -95,23 +96,23 @@ class ObstacleAvoidance:
         #Set angle to goal
         self.goal_ang = np.arctan2(self.goal[1] - self.pose[1], self.goal[0] - self.pose[0]) - self.pose[2]
         #Get index in angles for the minimum and maximum angles from the angle list (also corrosponds to self.scan)
-        min_idx = self.to_usable_angle(self.goal_ang - self.full_view_ang)
-        max_idx = self.to_usable_angle(self.goal_ang + self.full_view_ang)
+        min_idx, max_idx, idx_inc, sect_idx, safe_idx = self.determine_indexing()
+        # print(self.ang_inc, self.ang_inc_deg, idx_inc, sect_idx, safe_idx)
         #Initialize max score and group
         max_score = -float("inf")       # Score for closeness correct direction
         max_group = 0                   # Group with best heading
         max_scan = np.array([])
-
         #Iterate through the sects in the scan
-        for group in range(min_idx, max_idx, self.sect_spacing):
+        for group in range(min_idx + safe_idx, max_idx - safe_idx, idx_inc):
             #Loop thorough sect_size scan sections of laserscan
-            sect_dists = self.scan[group - self.sect_size: group + self.sect_size]           #Get sect distances
-            sect_safety = self.scan[group - self.safety_size: group + self.safety_size]     #Get safety region for the sect
+            sect_dists = self.scan[group - sect_idx: group + sect_idx]           #Get sect distances
+            sect_safety = self.scan[group - safe_idx: group + safe_idx]     #Get safety region for the sect
             ang_from_goal = abs(self.angs_list[group] - self.goal_ang)                          #Get absolute value of angle from goal
             ang_from_odom = abs(self.angs_list[group])                                          #Get absolute value of angle from current pose angle
+            print(len(sect_dists), len(sect_safety))
             #Get the score for this group
             temp_score = self.get_score(sect_dists, sect_safety, ang_from_goal, ang_from_odom)
-            # print(self.angs_list[group], temp_score, sect_dists.min(), ang_from_goal, ang_from_odom)
+            print(self.angs_list[group], temp_score, sect_dists.min(), ang_from_goal, ang_from_odom)
             #If this group is better than previous best group, set this group as new max_group
             if temp_score >= max_score:
                 max_score = temp_score
@@ -126,6 +127,20 @@ class ObstacleAvoidance:
         self.check_goal()
         self.create_drive(self.velocity, self.heading)
         self.drive_pub.publish(self.drive_msg)
+
+    def determine_indexing(self):
+        min_idx = self.to_usable_angle(self.goal_ang - self.full_view_ang)
+        max_idx = self.to_usable_angle(self.goal_ang + self.full_view_ang)
+        idx_inc = int(self.sect_spacing/self.ang_inc_deg)       # Spacing angle to indecies
+        sect_idx = int(self.sect_size/self.ang_inc_deg)         # Sect angle to indicies
+        safe_idx = int(self.safety_size/self.ang_inc_deg)       # Safety angle to indicies
+        idx_range = 2*int(self.full_view_ang/self.ang_inc)
+        if max_idx - min_idx < idx_range:
+            if max_idx == len(self.scan) - 1:
+                min_idx = max_idx - idx_range
+            if min_idx == 0:
+                max_idx = idx_range
+        return min_idx, max_idx, idx_inc, sect_idx, safe_idx
 
     def determine_heading(self, max_group):
         """
@@ -159,8 +174,8 @@ class ObstacleAvoidance:
         """
         clearance = self.get_clearance(dists, self.clearance_dist)
         safety_clearance = self.get_clearance(dists_safety, self.safety_dist)
-        print "Clearance:", clearance
-        print "Safety clearance:", safety_clearance
+        # print "Clearance:", clearance
+        # print "Safety clearance:", safety_clearance
 
         if safety_clearance < self.safety_thresh:
             return -float("inf")
@@ -202,7 +217,7 @@ class ObstacleAvoidance:
         '''
         angle_to_min = theta - self.min_ang
         index = int(angle_to_min/self.ang_inc)
-        return max(0, min(index, len(self.angs_list)))
+        return max(0, min(index, len(self.angs_list) - 2))
 
 
     def a_trans(self,data):
