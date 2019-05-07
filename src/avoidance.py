@@ -7,6 +7,7 @@ from sensor_msgs.msg import LaserScan
 from visualization_msgs.msg import Marker
 from geometry_msgs.msg import Point32, Point, PoseStamped, PoseWithCovarianceStamped
 from ackermann_msgs.msg import AckermannDriveStamped
+import dubins
 
 pi = np.pi
 
@@ -22,6 +23,7 @@ class ObstacleAvoidance:
         self.DRIVE_TOPIC = rospy.get_param("~drive_topic")
         self.GOAL_TOPIC = rospy.get_param("~goal_topic")
         self.SAFETY_TOPIC = rospy.get_param("~safety_topic")
+        self.WHEELBASE = rospy.get_param("~wheelbase")
 
         self.full_view_ang = rospy.get_param("~full_view_ang")  #The +/- angle from the goal from which we take sects
         self.safety_dist = rospy.get_param("~safety_dist")    #The +/- number of scans we consider for safetying a sect due to a close scan
@@ -154,9 +156,32 @@ class ObstacleAvoidance:
         """
         input: the max group from the scoring
         output: none, but sets the heading
-        #TODO: Probably should be something with ackermann steering. Currently just points wheels in direction of the max group found.
+        #Creates a nav point .75 meters away from the car in the direction of the max scoring group, and steers toward this point.
+        #TODO: tune and make nav_point_distance and l_fw parameters (velocity scaled?), potentially create a dubins path instead of just a goal point
         """
-        self.heading = max(-.34, min(.34, self.angs_list[max_group]))
+        eta = self.angs_list[max_group]
+        nav_point_distance = 0.75 #tune this, possibly velocity scaled
+        nav_point = np.array([nav_point_distance*np.cos(eta), nav_point_distance*np.sin(eta), eta])
+
+        #simple Ackermann steering
+        alpha = np.arctan2(2*self.WHEELBASE*np.sin(eta), nav_point_distance)
+        self.heading = alpha
+
+        #stabilized Ackermann steering
+        # l_fw = self.WHEELBASE/2 #tune this
+        # numerator = self.WHEELBASE*np.sin(eta)
+        # denominator = nav/2 + l_fw*np.cos(eta)
+        # beta = -np.arctan2(numerator, denominator)
+        #self.heading = beta
+        
+        #dubins path framework to potentially implement
+        # p = dubins.shortest_path(tuple(self.pose), tuple(nav_point), self.turning_radius) #need turning radius param
+        # path, _ = path.sample_many(self.path_step_size) #need path_step_size param (~0.1m)
+        #do pure pursuit on path
+
+        #original code
+        #self.heading = max(-.34, min(.34, self.angs_list[max_group]))
+
 
     def get_clearance(self, scan, dist):
         """
