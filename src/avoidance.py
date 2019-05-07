@@ -1,10 +1,7 @@
 #!/usr/bin/env python2
 
 import numpy as np
-import math
 import rospy
-import scipy
-# from sklearn.metrics import mean_squared_error
 from rospy.numpy_msg import numpy_msg
 from sensor_msgs.msg import LaserScan
 from visualization_msgs.msg import Marker
@@ -19,51 +16,57 @@ class ObstacleAvoidance:
     # i.e. self.CONSTANT
 
     def __init__(self):
-        # TODO:
         self.POSE_TOPIC = rospy.get_param("~local_topic")
         self.HEADING_TOPIC = rospy.get_param("~heading_marker")
         self.SCAN_TOPIC = rospy.get_param("~scan_topic")
         self.DRIVE_TOPIC = rospy.get_param("~drive_topic")
         self.GOAL_TOPIC = rospy.get_param("~goal_topic")
-        self.full_view_ang = rospy.get_param("~full_view_ang")  #The +/- angle from the goal from which we take chunks
-        self.discard_dist = rospy.get_param("~discard_dist")    #The +/- number of scans we consider for discarding a chunk due to a close scan
-        self.discard_size = rospy.get_param("~discard_size")    #The distance threshold considered to discard a chunk within the scans from discard_dist
-        self.chunk_size = rospy.get_param("~chunk_size")        #The +/- number of scans we consider for a chunk to be scored
-        self.chunk_spacing = rospy.get_param("~chunk_spacing")  #The indicies between chunks we take
-        self.VELOCITY = rospy.get_param("~velocity")            #Velocity of the racecar
-        self.k_dist = rospy.get_param("~min_dist_weight")       #Weight given to the minimum distance in the clearance portion of score function
-        self.k_goal = rospy.get_param("~goal_ang_weight")       #Weight given to the magnitude of the angle between a chunk and the goal
-        self.k_pose = rospy.get_param("~past_ang_weight")       #Weight given to the magnitude of the angle between a chunk and the last angle chosen
-        self.out = AckermannDriveStamped()
+        self.SAFETY_TOPIC = rospy.get_param("~safety_topic")
 
-        # self.create_message(self.VELOCITY)
-        self.pose = np.zeros(3)     #Pose of robot
-        self.goal = np.zeros(3)     #Goal point
+        self.full_view_ang = rospy.get_param("~full_view_ang")  #The +/- angle from the goal from which we take sects
+        self.safety_dist = rospy.get_param("~safety_dist")    #The +/- number of scans we consider for safetying a sect due to a close scan
+        self.safety_size = rospy.get_param("~safety_size")    #The distance threshold considered to safety a sect within the scans from safety_dist
+        self.safety_thresh = rospy.get_param("~safety_thresh")
+        self.clearance_dist = rospy.get_param("~clearance_dist")
+        self.sect_size = rospy.get_param("~sect_size")        #The +/- number of scans we consider for a sect to be scored
+        self.sect_spacing = rospy.get_param("~sect_increment")  #The indicies between sects we take
+        self.max_velocity = rospy.get_param("~max_velocity")            #velocity of the racecar
+        self.k_dist = rospy.get_param("~clearance_weight")       # Weight given to the minimum distance in the clearance portion of score function
+        self.k_goal = rospy.get_param("~goal_weight")       #Weight given to the magnitude of the angle between a sect and the goal
+        self.k_turn = rospy.get_param("~turn_weight")       #Weight given to the magnitude of the angle between a sect and the last angle chosen
+        self.drive_msg = AckermannDriveStamped()
+
+        self.pose = np.zeros(3)     # Pose of robot
+        self.velocity = self.max_velocity # current speed of the robot
+        self.map_density = 1        # 1 being low density, 3 being high density
+        self.goal = np.zeros(3)     # Goal point
         self.goal_region = {"xmin": 0, "xmax": 0, "ymin": 0, "ymax": 0}
-        self.goal_size = 1
+        self.goal_size = 0.5
         self.in_goal = False
         self.scan = np.array([])
-        self.heading = 0            #Direction the wheels face
-        self.min_ang = -2*pi/3.     #Minimum angle of the scan
-        self.heading_pub = rospy.Publisher(self.HEADING_TOPIC, Marker, queue_size=10)                   #Publishes heading as a marker [CURRENTLY INACTIVE]
-        self.pub = rospy.Publisher(self.DRIVE_TOPIC, AckermannDriveStamped, queue_size=10)              #Pubhlishes the drive command
-        rospy.Subscriber(self.POSE_TOPIC,PoseStamped,self.pose_callback,queue_size=10)  #Gets pose from localization
-        rospy.Subscriber(self.SCAN_TOPIC, LaserScan, self.callback)                     #Gets laserscan
-        rospy.Subscriber(self.GOAL_TOPIC, PoseStamped, self.set_goal)                   #Gets the new goal position
+        self.heading = 0            # Direction the wheels face
+        self.min_ang = -2*pi/3.     # Minimum angle of the scan
 
+        # pubs and subs
+        self.heading_pub = rospy.Publisher(self.HEADING_TOPIC, Marker, queue_size=10) # Publishes heading as a marker
+        self.safety_pub = rospy.Publisher(self.SAFETY_TOPIC, Marker, queue_size=10)
+        self.drive_pub = rospy.Publisher(self.DRIVE_TOPIC, AckermannDriveStamped, queue_size=10)              #Pubhlishes the drive command
+        rospy.Subscriber(self.POSE_TOPIC,PoseStamped, self.pose_cb, queue_size=10)  #Gets pose from localization
+        rospy.Subscriber(self.SCAN_TOPIC, LaserScan, self.scan_cb)                     #Gets laserscan
+        rospy.Subscriber(self.GOAL_TOPIC, PoseStamped, self.goal_cb)                   #Gets the new goal position
 
-    def callback(self, scan):
-        '''
-        gets laserscan and sets important values
-        '''
+    def scan_cb(self, scan):
+        """
+        Gets laserscan and sets important values
+        """
         self.scan = np.array(scan.ranges)
         self.angs_list = self.a_trans(scan)
         self.min_ang = scan.angle_min
         self.ang_inc = scan.angle_increment
 
-    def set_goal(self, goal_pose):
+    def goal_cb(self, goal_pose):
         """
-        Gets starting pose from rviz pose estimate marker.
+        Gets goal pose from rviz pose estimate marker.
         """
         x, y = goal_pose.pose.position.x, goal_pose.pose.position.y
         self.goal = np.array([x, y, 0])
@@ -79,13 +82,14 @@ class ObstacleAvoidance:
         """
         if self.goal_region["xmin"] < self.pose[0] < self.goal_region["xmax"]:
             if self.goal_region["ymin"] < self.pose[1] < self.goal_region["ymax"]:
+                print "Reached goal!"
                 self.in_goal = True
 
-    def pose_callback(self, pose):
-        '''
-        input: Pose from localization as a PoseStamped
-        output: None, publishes a message of the best heading for the robot
-        '''
+    def pose_cb(self, pose):
+        """
+        Input: Pose from localization as a PoseStamped
+        Output: None, publishes a message of the best heading for the robot
+        """
         self.pose = np.array([pose.pose.position.x,pose.pose.position.y,2*np.arctan(pose.pose.orientation.z/pose.pose.orientation.w)])
         # self.pose = np.array([pose.x,pose.y,pose.z]) #sets global position variable
         #Set angle to goal
@@ -94,68 +98,102 @@ class ObstacleAvoidance:
         min_idx = self.to_usable_angle(self.goal_ang - self.full_view_ang)
         max_idx = self.to_usable_angle(self.goal_ang + self.full_view_ang)
         #Initialize max score and group
-        max_score = -float("inf")       #Score for closeness correct direction
-        max_group = 0                   #Gropu with best heading
-        print("____BEGIN__________________")
-        #Iterate through the chunks in the scan
-        for group in range(min_idx, max_idx, self.chunk_spacing):
-            #Loop thorough chunk_size scan sections of laserscan
-            chunk_dists = self.scan[group - self.chunk_size: group + self.chunk_size]           #Get chunk distances
-            chunk_discard = self.scan[group - self.discard_size: group + self.discard_size]     #Get safety region for the chunk
+        max_score = -float("inf")       # Score for closeness correct direction
+        max_group = 0                   # Group with best heading
+        max_scan = np.array([])
+
+        #Iterate through the sects in the scan
+        for group in range(min_idx, max_idx, self.sect_spacing):
+            #Loop thorough sect_size scan sections of laserscan
+            sect_dists = self.scan[group - self.sect_size: group + self.sect_size]           #Get sect distances
+            sect_safety = self.scan[group - self.safety_size: group + self.safety_size]     #Get safety region for the sect
             ang_from_goal = abs(self.angs_list[group] - self.goal_ang)                          #Get absolute value of angle from goal
             ang_from_odom = abs(self.angs_list[group])                                          #Get absolute value of angle from current pose angle
             #Get the score for this group
-            temp_score = self.get_score(chunk_dists, chunk_discard, ang_from_goal, ang_from_odom)
-            print(self.angs_list[group], temp_score, chunk_dists.min(), ang_from_goal, ang_from_odom)
+            temp_score = self.get_score(sect_dists, sect_safety, ang_from_goal, ang_from_odom)
+            # print(self.angs_list[group], temp_score, sect_dists.min(), ang_from_goal, ang_from_odom)
             #If this group is better than previous best group, set this group as new max_group
             if temp_score >= max_score:
                 max_score = temp_score
                 max_group = group
-        print("MAX:")
-        print(self.angs_list[max_group], max_score)
-        #Determine heading
+                max_scan = sect_dists
+
+        # Determine heading
         self.determine_heading(max_group)
         self.pub_heading(self.heading)
-        #Send steering mesage
+        # Send steering mesage
+        self.get_velocity(max_scan)
         self.check_goal()
-        self.create_message(self.VELOCITY, self.heading)
-        self.pub.publish(self.out)
-
+        self.create_drive(self.velocity, self.heading)
+        self.drive_pub.publish(self.drive_msg)
 
     def determine_heading(self, max_group):
-        '''
+        """
         input: the max group from the scoring
         output: none, but sets the heading
         #TODO: Probably should be something with ackermann steering. Currently just points wheels in direction of the max group found.
-        '''
+        """
         self.heading = max(-.34, min(.34, self.angs_list[max_group]))
 
-    def get_score(self, dists, dists_discard, ang_from_goal, ang_from_odom):
-        '''
+    def get_clearance(self, scan, dist):
+        """
+        Input: scan: np array of laser scan distances
+               dist: threshold distance
+        Output: clearance: proportion (between 0 and 1) of scans in sect that
+                           are greater than the threshold distance
+        """
+        filtered = scan[scan > dist]
+        clearance = float(len(filtered))/len(scan)
+
+        return clearance
+
+    def get_score(self, dists, dists_safety, ang_from_goal, ang_from_odom):
+        """
         input: dists: numpy array of the distances for the "clearance" section that we will take for scoring
-               dists_discard: the dists in the range of values that can cause the chunk to be discarded outright
+               dists_safety: the dists in the range of values that can cause the sect to be discarded outright
                ang_from_goal: absolute value of angle to the goal
                ang_from_odom: absolute value of angle from current pose angle
         output: The score of a group given the input values
-        '''
-        #If any distance in the discard is less than the threshold, return -inf
-        if dists_discard.min() < self.discard_dist:
-            print("discarded")
-            return -float("inf")
-        #Return the weighted score of each relevant input
-        return dists.min()*self.k_dist - ang_from_goal*self.k_goal - ang_from_odom*self.k_goal
 
-    def create_message(self, v, ang):
+        Score = Kc * clearance - Kg * goal_angle_delta - Kt * turning_angle
         """
-        create optput AckermannDriveStamped mssage
+        clearance = self.get_clearance(dists, self.clearance_dist)
+        safety_clearance = self.get_clearance(dists_safety, self.safety_dist)
+        print "Clearance:", clearance
+        print "Safety clearance:", safety_clearance
+
+        if safety_clearance < self.safety_thresh:
+            return -float("inf")
+        # Return the weighted score of each relevant input
+        return clearance*self.k_dist - ang_from_goal*self.k_goal - ang_from_odom*self.k_goal
+
+    def get_velocity(self, scan):
         """
-        self.out.header.stamp = rospy.Time.now()
-        self.out.header.frame_id = "1"
-        self.out.drive.steering_angle = ang
-        self.out.drive.steering_angle_velocity = 0
-        self.out.drive.speed = 0 if self.in_goal else v
-        self.out.drive.acceleration = 0
-        self.out.drive.jerk = 0
+        Input: np array of a laser scan
+        Output: None: sets velocity as a function of how "dense" the local map
+                      is. Higher clearance scores -> higher velocities
+        """
+        # TODO: set the velocity trigger distances as a list in the params
+        if self.get_clearance(scan, 2.5) > 0.5:
+            self.velocity = self.max_velocity
+        elif self.get_clearance(scan, 2) > 0.5:
+            self.velocity = self.max_velocity * 0.75
+        else:
+            self.velocity = self.max_velocity * 0.5
+
+        print "Current velocity:", self.velocity
+
+    def create_drive(self, v, ang):
+        """
+        create output AckermannDriveStamped mssage
+        """
+        self.drive_msg.header.stamp = rospy.Time.now()
+        self.drive_msg.header.frame_id = "1"
+        self.drive_msg.drive.steering_angle = ang
+        self.drive_msg.drive.steering_angle_velocity = 0
+        self.drive_msg.drive.speed = 0 if self.in_goal else v
+        self.drive_msg.drive.acceleration = 0
+        self.drive_msg.drive.jerk = 0
 
     def to_usable_angle(self, theta):
         '''
@@ -168,10 +206,10 @@ class ObstacleAvoidance:
 
 
     def a_trans(self,data):
-        '''
+        """
         input: data: laserscan message
         output: list of what each angle in the laser scan represents
-        '''
+        """
         #returns [list] of angles within range
         amin = data.angle_min #min angle [rad]
         amax = data.angle_max #max angle [rad]
@@ -185,64 +223,65 @@ class ObstacleAvoidance:
     def pub_heading(self, angle):
         """
         Publishes a marker to show the current desired heading of the car.
-        Input: angle: global angle of the next heading in radians
+        Input: angle: relative angle of the next heading in radians
         """
-        marker_msg = Marker()
-
-        #arrow marker for current pose
-        marker_msg.header.frame_id = "/base_link"
-        marker_msg.header.stamp = rospy.Time.now()
-        marker_msg.ns = "marker_msg_marker"
-        marker_msg.id = 0
-        marker_msg.type = marker_msg.ARROW
-
-        #start point and end point
-        marker_msg.points = [Point(), Point()]
-        #start point
-        marker_msg.points[0].x = 0
-        marker_msg.points[0].y = 0
-        marker_msg.points[0].z = 0
-        #end point
-        marker_msg.points[1].x = np.cos(angle)
-        marker_msg.points[1].y = np.sin(angle)
-        marker_msg.points[1].z = 0
-
-        marker_msg.scale.x = 0.2
-        marker_msg.scale.y = 0.4
-
-        marker_msg.color.a = 1.0
-        marker_msg.color.g = 1.0
-
-        self.heading_pub.publish(marker_msg)
-
-    def create_PointCloud(self):
-
-        #arrow marker for current pose
-        heading = Marker()
-        heading.header.frame_id = "/map"
-        heading.header.stamp = rospy.Time.now()
-        heading.ns = "heading_marker"
-        heading.id = 0
-        heading.type = heading.ARROW
-        heading.action = heading.ADD
+        # arrow marker for current pose
+        arrow_msg = Marker()
+        arrow_msg.header.frame_id = "/base_link"
+        arrow_msg.header.stamp = rospy.Time.now()
+        arrow_msg.ns = "arrow_marker"
+        arrow_msg.id = 0
+        arrow_msg.type = arrow_msg.ARROW
 
         #start point and end point
-        heading.points = [Point(), Point()]
+        arrow_msg.points = [Point(), Point()]
         #start point
-        heading.points[0].x = self.pose[0]
-        heading.points[0].y = self.pose[1]
-        heading.points[0].z = 0
+        arrow_msg.points[0].x = 0
+        arrow_msg.points[0].y = 0
+        arrow_msg.points[0].z = 0
         #end point
-        heading.points[1].x = np.cos(self.heading) + self.pose[0]
-        heading.points[1].y = np.sin(self.heading) + self.pose[1]
-        heading.points[1].z = 0
+        arrow_msg.points[1].x = np.cos(angle)
+        arrow_msg.points[1].y = np.sin(angle)
+        arrow_msg.points[1].z = 0
 
-        heading.scale.x = 0.2
-        heading.scale.y = 0.4
+        arrow_msg.scale.x = 0.2
+        arrow_msg.scale.y = 0.4
 
-        heading.color.a = 1.0
-        heading.color.g = 1.0
-        self.heading_pub.publish(heading)
+        arrow_msg.color.a = 1.0
+        arrow_msg.color.g = 1.0
+
+        self.heading_pub.publish(arrow_msg)
+
+        # TODO: implement triangles for visualizing the clearance range and the
+        #       safety range
+        heading_msg = Marker()
+        heading_msg.header.frame_id = "/base_link"
+        heading_msg.header.stamp = rospy.Time.now()
+        heading_msg.ns = "section_marker"
+        heading_msg.id = 0
+        heading_msg.type = heading_msg.TRIANGLE_LIST
+
+        # points of chosen slice
+        heading_msg.points = [Point(), Point(), Point()]
+        # start point on robot
+        heading_msg.points[0].x = 0
+        heading_msg.points[0].y = 0
+        heading_msg.points[0].z = 0
+        # laser scan points
+        heading_msg.points[1].x = np.cos(angle)
+        heading_msg.points[1].y = np.sin(angle)
+        heading_msg.points[1].z = 0
+        heading_msg.points[2].x = np.cos(angle)
+        heading_msg.points[2].y = np.sin(angle)
+        heading_msg.points[2].z = 0
+
+        heading_msg.scale.x = 0.2
+        heading_msg.scale.y = 0.4
+
+        heading_msg.color.a = 0.5
+        heading_msg.color.g = 1.0
+
+        saftey_msg = Marker()
 
 
 

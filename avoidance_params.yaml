@@ -1,14 +1,15 @@
-# rrt* algorithm parameters
-chunk_size: 15 # number of scans grouped together
-chunk_spacing: 3 # number of scans between each chunk
-discard_dist: 1 # distance that will us to discard a chunk due to one (or a few) values being too close
-discard_size: 4 # +/- number of indicies that will trigger a chunk to be discared if one (or a few) values are less than discard_dist
-min_dist_weight: 5 # Weight given to the minimum distance in the clearance portion of score function
-goal_ang_weight: 1 # Weight given to the magnitude of the angle between a chunk and the goal
-past_ang_weight: 0.3 # Weight given to the magnitude of the angle between a chunk and the last angle chosen
-full_view_ang: .5 #angle to cause a dodge
-velocity: 2 #velocity
-
+# obstacle avoidance algorithm parameters
+sect_size: 15 # number of scans grouped together
+sect_increment: 4 # number of scans between each section of laser scan
+safety_dist: 0.4 # distance that will us to discard a scan due to one (or a few) values being too close
+safety_size: 8 # +/- number of indices that will trigger a chunk to be discared if one (or a few) values are less than discard_dist
+safety_thresh: 0.7 # proportion of safety scan that has to pass the safety distance
+clearance_dist: 1.5 # [meters] threshold above which a scan is considered in open space
+clearance_weight: 15 # Weight given to the minimum distance in the clearance portion of score function
+goal_weight: 1.0 # weight given to the magnitude of the angle between a chunk and the goal
+turn_weight: 0.5 # Weight given to the magnitude of the angle between a chunk and the last angle chosen
+full_view_ang: .5 # angle to cause a dodge
+max_velocity: 4.5 # velocity
 
 # topics
 #local_topic: "/estim_pose"
@@ -17,3 +18,4 @@ drive_topic: "/drive"
 scan_topic: "/scan"
 goal_topic: "/move_base_simple/goal"
 heading_marker: "/heading"
+safety_topic: "/safety"
