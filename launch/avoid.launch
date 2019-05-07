@@ -1,6 +1,6 @@
 <launch>
   <!-- Launch the racecar simulator -->
-  <include file="$(find localization-solution)/launch/localize_simulation.launch"/>
+  <include file="$(find localization-solution)/launch/localize_real_env.launch"/>
  
   
   <!-- Begin rrt for path planning -->
