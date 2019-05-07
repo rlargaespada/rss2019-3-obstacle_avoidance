@@ -102,14 +102,13 @@ class ObstacleAvoidance:
         max_score = -float("inf")       # Score for closeness correct direction
         max_group = 0                   # Group with best heading
         max_scan = np.array([])
-        #Iterate through the sects in the scan
+        #Iterate through the sects in the scan (NOTE: we close off the beginning and end of the range to ensure indecies don't try to wrap around)
         for group in range(min_idx + safe_idx, max_idx - safe_idx, idx_inc):
             #Loop thorough sect_size scan sections of laserscan
             sect_dists = self.scan[group - sect_idx: group + sect_idx]           #Get sect distances
             sect_safety = self.scan[group - safe_idx: group + safe_idx]     #Get safety region for the sect
             ang_from_goal = abs(self.angs_list[group] - self.goal_ang)                          #Get absolute value of angle from goal
             ang_from_odom = abs(self.angs_list[group])                                          #Get absolute value of angle from current pose angle
-            print(len(sect_dists), len(sect_safety))
             #Get the score for this group
             temp_score = self.get_score(sect_dists, sect_safety, ang_from_goal, ang_from_odom)
             print(self.angs_list[group], temp_score, sect_dists.min(), ang_from_goal, ang_from_odom)
@@ -129,12 +128,21 @@ class ObstacleAvoidance:
         self.drive_pub.publish(self.drive_msg)
 
     def determine_indexing(self):
-        min_idx = self.to_usable_angle(self.goal_ang - self.full_view_ang)
-        max_idx = self.to_usable_angle(self.goal_ang + self.full_view_ang)
+        '''
+        input: None
+        output: min_idx: starting index for the next scan's search
+                max_idx: ending index for the next scan's search
+                idx_inc: number of indicies between each section of our scan
+                sect_idx: +/- number of indexes in each section of our scan
+                safe_idx: +/- number of indexes for our safety detection
+        '''
+        min_idx = self.to_usable_angle(self.goal_ang - self.full_view_ang)  #Minimum angle index to be looked at for this scan
+        max_idx = self.to_usable_angle(self.goal_ang + self.full_view_ang)  #Maximum angle index to be looked at for this scan
         idx_inc = int(self.sect_spacing/self.ang_inc_deg)       # Spacing angle to indecies
         sect_idx = int(self.sect_size/self.ang_inc_deg)         # Sect angle to indicies
         safe_idx = int(self.safety_size/self.ang_inc_deg)       # Safety angle to indicies
-        idx_range = 2*int(self.full_view_ang/self.ang_inc)
+        idx_range = 2*int(self.full_view_ang/self.ang_inc)      # Number of indecies expected out of our full view
+        #If the max or min is pulled to the edge of the scan, give it the correct number of indicies
         if max_idx - min_idx < idx_range:
             if max_idx == len(self.scan) - 1:
                 min_idx = max_idx - idx_range
