@@ -10,6 +10,7 @@ goal_weight: 1.0 # weight given to the magnitude of the angle between a chunk an
 turn_weight: 0.5 # Weight given to the magnitude of the angle between a chunk and the last angle chosen
 full_view_ang: .5 # angle to cause a dodge
 max_velocity: 4.5 # velocity
+wheelbase: 0.325 #pulled from our parking controller and checked with measuring tape
 
 # topics
 #local_topic: "/estim_pose"
