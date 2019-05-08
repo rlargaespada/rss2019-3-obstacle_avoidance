@@ -173,7 +173,7 @@ class ObstacleAvoidance:
         # denominator = nav/2 + l_fw*np.cos(eta)
         # beta = -np.arctan2(numerator, denominator)
         #self.heading = beta
-        
+
         #dubins path framework to potentially implement
         # p = dubins.shortest_path(tuple(self.pose), tuple(nav_point), self.turning_radius) #need turning radius param
         # path, _ = path.sample_many(self.path_step_size) #need path_step_size param (~0.1m)
@@ -298,8 +298,6 @@ class ObstacleAvoidance:
         arrow_msg.color.a = 1.0
         arrow_msg.color.g = 1.0
 
-        self.heading_pub.publish(arrow_msg)
-
         # TODO: implement triangles for visualizing the clearance range and the
         #       safety range
         heading_msg = Marker()
@@ -316,21 +314,55 @@ class ObstacleAvoidance:
         heading_msg.points[0].y = 0
         heading_msg.points[0].z = 0
         # laser scan points
-        heading_msg.points[1].x = np.cos(angle)
-        heading_msg.points[1].y = np.sin(angle)
+        heading_msg.points[1].x = self.clearance_dist*np.cos(angle + np.radians(self.sect_size))
+        heading_msg.points[1].y = self.clearance_dist*np.sin(angle + np.radians(self.sect_size))
         heading_msg.points[1].z = 0
-        heading_msg.points[2].x = np.cos(angle)
-        heading_msg.points[2].y = np.sin(angle)
+        heading_msg.points[2].x = self.clearance_dist*np.cos(angle - np.radians(self.sect_size))
+        heading_msg.points[2].y = self.clearance_dist*np.sin(angle - np.radians(self.sect_size))
         heading_msg.points[2].z = 0
 
-        heading_msg.scale.x = 0.2
-        heading_msg.scale.y = 0.4
+        heading_msg.scale.x = 1
+        heading_msg.scale.y = 1
+        heading_msg.scale.z = 1
 
         heading_msg.color.a = 0.5
+        heading_msg.color.r = 0.0
         heading_msg.color.g = 1.0
+        heading_msg.color.b = 0.0
 
-        saftey_msg = Marker()
+        self.heading_pub.publish(heading_msg)
 
+        safety_msg = Marker()
+        safety_msg.header.frame_id = "/base_link"
+        safety_msg.header.stamp = rospy.Time.now()
+        safety_msg.ns = "section_marker"
+        safety_msg.id = 0
+        safety_msg.type = heading_msg.TRIANGLE_LIST
+
+        # points of chosen slice
+        safety_msg.points = [Point(), Point(), Point()]
+        # start point on robot
+        safety_msg.points[0].x = 0
+        safety_msg.points[0].y = 0
+        heading_msg.points[0].z = 0
+        # laser scan points
+        safety_msg.points[1].x = self.safety_dist*np.cos(angle + np.radians(self.safety_size))
+        safety_msg.points[1].y = self.safety_dist*np.sin(angle + np.radians(self.safety_size))
+        safety_msg.points[1].z = 0
+        safety_msg.points[2].x = self.safety_dist*np.cos(angle - np.radians(self.safety_size))
+        safety_msg.points[2].y = self.safety_dist*np.sin(angle - np.radians(self.safety_size))
+        safety_msg.points[2].z = 0
+
+        safety_msg.scale.x = 1.0
+        safety_msg.scale.y = 1.0
+        safety_msg.scale.z = 1.0
+
+        safety_msg.color.a = 1.0
+        safety_msg.color.r = 1.0
+        safety_msg.color.g = 0.0
+        safety_msg.color.b = 0.0
+
+        self.safety_pub.publish(safety_msg)
 
 
 if __name__ == "__main__":
