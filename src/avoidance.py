@@ -7,7 +7,7 @@ from sensor_msgs.msg import LaserScan
 from visualization_msgs.msg import Marker
 from geometry_msgs.msg import Point32, Point, PoseStamped, PoseWithCovarianceStamped
 from ackermann_msgs.msg import AckermannDriveStamped
-import dubins
+#import dubins
 
 pi = np.pi
 
@@ -124,7 +124,7 @@ class ObstacleAvoidance:
         self.determine_heading(max_group)
         self.pub_heading(self.heading)
         # Send steering mesage
-        self.get_velocity(max_scan)
+        self.get_velocity(max_scan, self.heading)
         self.check_goal()
         self.create_drive(self.velocity, self.heading)
         self.drive_pub.publish(self.drive_msg)
@@ -160,19 +160,19 @@ class ObstacleAvoidance:
         #TODO: tune and make nav_point_distance and l_fw parameters (velocity scaled?), potentially create a dubins path instead of just a goal point
         """
         eta = self.angs_list[max_group]
-        nav_point_distance = 0.75 #tune this, possibly velocity scaled
+        nav_point_distance = .75 #tune this, possibly velocity scaled
         nav_point = np.array([nav_point_distance*np.cos(eta), nav_point_distance*np.sin(eta), eta])
 
         #simple Ackermann steering
-        alpha = np.arctan2(2*self.WHEELBASE*np.sin(eta), nav_point_distance)
-        self.heading = alpha
+        #alpha = np.arctan2(2*self.WHEELBASE*np.sin(eta), nav_point_distance)
+        #self.heading = alpha
 
-        #stabilized Ackermann steering
-        # l_fw = self.WHEELBASE/2 #tune this
-        # numerator = self.WHEELBASE*np.sin(eta)
-        # denominator = nav/2 + l_fw*np.cos(eta)
-        # beta = -np.arctan2(numerator, denominator)
-        #self.heading = beta
+       #stabilized Ackermann steering
+        l_fw = self.WHEELBASE/2 #tune this
+        numerator = self.WHEELBASE*np.sin(eta)
+        denominator = nav_point_distance/2 + l_fw*np.cos(eta)
+        beta = np.arctan2(numerator, denominator)
+        self.heading = beta
 
         #dubins path framework to potentially implement
         # p = dubins.shortest_path(tuple(self.pose), tuple(nav_point), self.turning_radius) #need turning radius param
@@ -215,16 +215,16 @@ class ObstacleAvoidance:
         # Return the weighted score of each relevant input
         return clearance*self.k_dist - ang_from_goal*self.k_goal - ang_from_odom*self.k_goal
 
-    def get_velocity(self, scan):
+    def get_velocity(self, scan, heading):
         """
         Input: np array of a laser scan
         Output: None: sets velocity as a function of how "dense" the local map
                       is. Higher clearance scores -> higher velocities
         """
         # TODO: set the velocity trigger distances as a list in the params
-        if self.get_clearance(scan, 2.5) > 0.5:
+        if abs(heading) < .1: #self.get_clearance(scan, 2.5) > 0.5:
             self.velocity = self.max_velocity
-        elif self.get_clearance(scan, 2) > 0.5:
+        elif abs(heading) < .2: #self.get_clearance(scan, 2) > 0.5:
             self.velocity = self.max_velocity * 0.75
         else:
             self.velocity = self.max_velocity * 0.5
