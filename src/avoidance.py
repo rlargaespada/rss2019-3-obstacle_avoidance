@@ -222,9 +222,9 @@ class ObstacleAvoidance:
                       is. Higher clearance scores -> higher velocities
         """
         # TODO: set the velocity trigger distances as a list in the params
-        if abs(heading) < .1: #self.get_clearance(scan, 2.5) > 0.5:
+        if abs(heading) < .1: #self.get_clearance(scan, 2.5) > 0.8:
             self.velocity = self.max_velocity
-        elif abs(heading) < .2: #self.get_clearance(scan, 2) > 0.5:
+        elif abs(heading) < .2: #self.get_clearance(scan, 1.5) > 0.5:
             self.velocity = self.max_velocity * 0.75
         else:
             self.velocity = self.max_velocity * 0.5
@@ -240,7 +240,7 @@ class ObstacleAvoidance:
         self.drive_msg.drive.steering_angle = ang
         self.drive_msg.drive.steering_angle_velocity = 0
         self.drive_msg.drive.speed = 0 if self.in_goal else v
-        self.drive_msg.drive.acceleration = 0
+        self.drive_msg.drive.acceleration = 0.3
         self.drive_msg.drive.jerk = 0
 
     def to_usable_angle(self, theta):
