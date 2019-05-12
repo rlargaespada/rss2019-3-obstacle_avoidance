@@ -11,7 +11,7 @@
 
   <!-- Start localization -->
   <node pkg="localization-solution" type="particle_filter.py" name="particle_filter" output="screen">
-    <rosparam command="load" file="$(find obstacle_avoidance)/localization_params.yaml"/>
+    <rosparam command="load" file="$(find obstacle_avoidance)/src/localization_params.yaml"/>
     <param name="particle_filter_frame" value="/base_link"/>
     <param name="map_topic" value="/map"/>
     <param name="scan_topic" value="/scan"/>

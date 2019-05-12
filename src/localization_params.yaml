@@ -1,0 +1,17 @@
+# A reasonable number to start with
+num_particles: 200
+
+# The field of view centered around theta=0
+scan_field_of_view: 4.71 # radians
+
+# Discretize the theta space for faster ray tracing
+scan_theta_discretization: 500
+
+do_viz: True
+max_viz_particles: 60
+squash_factor: 2.2
+
+
+p_short: .4
+p_hit: .31
+noise_factor: 1
