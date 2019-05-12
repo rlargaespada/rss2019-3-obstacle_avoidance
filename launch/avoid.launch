@@ -1,9 +1,26 @@
 <launch>
-  <!-- Launch the racecar simulator -->
-  <include file="$(find localization-solution)/launch/localize_real_env.launch"/>
- 
-  
-  <!-- Begin rrt for path planning -->
+  <!-- Listen to messages from joysicks -->
+  <node pkg="joy" name="joy_node" type="joy_node"/>
+
+  <!-- Launch a map from the maps folder-->
+  <arg name="map" default="$(find localization-solution)/maps/stata_basement.yaml"/>
+  <node pkg="map_server" name="map_server" type="map_server" args="$(arg map)"/>
+
+  <!-- Launch the racecar model -->
+  <include file="$(find localization-solution)/launch/racecar_model.launch"/>
+
+  <!-- Start localization -->
+  <node pkg="localization-solution" type="particle_filter.py" name="particle_filter" output="screen">
+    <rosparam command="load" file="$(find obstacle_avoidance)/localization_params.yaml"/>
+    <param name="particle_filter_frame" value="/base_link"/>
+    <param name="map_topic" value="/map"/>
+    <param name="scan_topic" value="/scan"/>
+    <param name="odom_topic" value="/vesc/odom"/>
+    <param name="angle_step" value="11"/>
+    <param name="num_beams_per_particle" value="99" />
+  </node>
+
+  <!-- Begin obstacle_avoidance -->
   <node pkg="obstacle_avoidance" type="avoidance.py" name="obstacle_avoidance" output="screen">
     <rosparam command="load" file="$(find obstacle_avoidance)/avoidance_params.yaml"/>
   </node>
